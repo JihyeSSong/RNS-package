@@ -1,0 +1,21 @@
+From 09f5daa7ff2ce4923d0382452912c2d2dfea7f26 Mon Sep 17 00:00:00 2001
+From: kimb <kimb@macbkkim.dyndns.cern.ch>
+Date: Tue, 16 Aug 2016 10:19:14 +0200
+Subject: [PATCH] AddTaskRsnf0f2 macro to be installed
+
+---
+ PWGLF/RESONANCES/extra/CMakeLists.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/PWGLF/RESONANCES/extra/CMakeLists.txt b/PWGLF/RESONANCES/extra/CMakeLists.txt
+index 2731c46..b0af54d 100644
+--- a/PWGLF/RESONANCES/extra/CMakeLists.txt
++++ b/PWGLF/RESONANCES/extra/CMakeLists.txt
+@@ -76,3 +76,4 @@ install(TARGETS ${MODULE}
+ install(FILES ${HDRS} DESTINATION include)
+ install(FILES AddTaskXiStar.C DESTINATION PWGLF/RESONANCES/extra)
+ install(FILES AddTaskLambda.C DESTINATION PWGLF/RESONANCES/extra)
++install(FILES AddTaskRsnf0f2.C DESTINATION PWGLF/RESONANCES/extra)
+-- 
+2.7.4 (Apple Git-66)
+

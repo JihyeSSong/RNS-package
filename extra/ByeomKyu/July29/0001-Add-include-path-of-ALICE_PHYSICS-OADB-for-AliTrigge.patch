@@ -1,0 +1,25 @@
+From 94c612ea6abefcb117d65f3cc1717189788fbe95 Mon Sep 17 00:00:00 2001
+From: mfasel <markus.fasel@cern.ch>
+Date: Fri, 29 Jul 2016 13:55:51 +0200
+Subject: [PATCH] Add include path of ALICE_PHYSICS/OADB (for
+ AliTriggerAnalysis.h)
+
+---
+ PWGLF/RESONANCES/extra/CMakeLists.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/PWGLF/RESONANCES/extra/CMakeLists.txt b/PWGLF/RESONANCES/extra/CMakeLists.txt
+index 4301a82..e782657 100644
+--- a/PWGLF/RESONANCES/extra/CMakeLists.txt
++++ b/PWGLF/RESONANCES/extra/CMakeLists.txt
+@@ -23,6 +23,7 @@ include_directories(${AliPhysics_SOURCE_DIR}/PWGLF/RESONANCES/extra)
+ # Additional includes - alphabetical order except ROOT
+ include_directories(${ROOT_INCLUDE_DIRS}
+                     ${AliPhysics_SOURCE_DIR}/CORRFW
++                    ${AliPhysics_SOURCE_DIR}/OADB
+                     ${AliPhysics_SOURCE_DIR}/PWGLF/RESONANCES
+                     ${AliPhysics_SOURCE_DIR}/PWG/Tools
+                    )
+-- 
+2.9.2
+

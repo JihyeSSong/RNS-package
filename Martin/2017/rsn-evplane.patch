@@ -1,0 +1,474 @@
+diff --git a/PWGLF/RESONANCES/AliRsnMiniAnalysisTask.cxx b/PWGLF/RESONANCES/AliRsnMiniAnalysisTask.cxx
+index fa7763c..d037dc5 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniAnalysisTask.cxx
++++ b/PWGLF/RESONANCES/AliRsnMiniAnalysisTask.cxx
+@@ -37,6 +37,10 @@
+ 
+ #include "AliMultSelection.h"
+ 
++#include "AliAnalysisTaskFlowVectorCorrections.h"
++#include "AliQnCorrectionsManager.h"
++#include "AliQnCorrectionsQnVector.h"
++
+ #include "AliRsnCutSet.h"
+ #include "AliRsnMiniPair.h"
+ #include "AliRsnMiniEvent.h"
+@@ -59,6 +63,9 @@ AliRsnMiniAnalysisTask::AliRsnMiniAnalysisTask() :
+    fRefMultiType("GLOBAL"),
+    fUseAOD049CentralityPatch(kFALSE),
+    fUseCentralityPatchPbPb2011(0),
++   fFlowQnVectorMgr(0),
++   fFlowQnVectorSubDet("VZEROA"),
++   fFlowQnVectorExpStep("latest"),
+    fContinuousMix(kTRUE),
+    fNMix(0),
+    fMaxDiffMult(10),
+@@ -111,6 +118,9 @@ AliRsnMiniAnalysisTask::AliRsnMiniAnalysisTask(const char *name, Bool_t useMC) :
+    fRefMultiType("GLOBAL"),
+    fUseAOD049CentralityPatch(kFALSE),
+    fUseCentralityPatchPbPb2011(0),
++   fFlowQnVectorMgr(0),
++   fFlowQnVectorSubDet("VZEROA"),
++   fFlowQnVectorExpStep("latest"),
+    fContinuousMix(kTRUE),
+    fNMix(0),
+    fMaxDiffMult(10),
+@@ -168,6 +178,9 @@ AliRsnMiniAnalysisTask::AliRsnMiniAnalysisTask(const AliRsnMiniAnalysisTask &cop
+    fRefMultiType(copy.fRefMultiType),
+    fUseAOD049CentralityPatch(copy.fUseAOD049CentralityPatch),
+    fUseCentralityPatchPbPb2011(copy.fUseCentralityPatchPbPb2011),
++   fFlowQnVectorMgr(copy.fFlowQnVectorMgr),
++   fFlowQnVectorSubDet(copy.fFlowQnVectorSubDet),
++   fFlowQnVectorExpStep(copy.fFlowQnVectorExpStep),
+    fContinuousMix(copy.fContinuousMix),
+    fNMix(copy.fNMix),
+    fMaxDiffMult(copy.fMaxDiffMult),
+@@ -231,6 +244,9 @@ AliRsnMiniAnalysisTask &AliRsnMiniAnalysisTask::operator=(const AliRsnMiniAnalys
+    fRefMultiType = copy.fRefMultiType;
+    fUseAOD049CentralityPatch = copy.fUseAOD049CentralityPatch;
+    fUseCentralityPatchPbPb2011 = copy.fUseCentralityPatchPbPb2011;
++   fFlowQnVectorMgr = copy.fFlowQnVectorMgr;
++   fFlowQnVectorSubDet = copy.fFlowQnVectorSubDet;
++   fFlowQnVectorExpStep = copy.fFlowQnVectorExpStep;
+    fContinuousMix = copy.fContinuousMix;
+    fNMix = copy.fNMix;
+    fMaxDiffMult = copy.fMaxDiffMult;
+@@ -366,6 +382,12 @@ void AliRsnMiniAnalysisTask::UserCreateOutputObjects()
+    if(fHAEventRefMultiCent) fOutput->Add(fHAEventRefMultiCent);
+    if(fHAEventPlane) fOutput->Add(fHAEventPlane);
+ 
++   AliAnalysisTaskFlowVectorCorrections *flowQnVectorTask = dynamic_cast<AliAnalysisTaskFlowVectorCorrections *>(AliAnalysisManager::GetAnalysisManager()->GetTask("FlowQnVectorCorrections"));
++   if (flowQnVectorTask) {
++     AliInfo("Using Flow Qn vector corrections framework task ...");
++     fFlowQnVectorMgr = flowQnVectorTask->GetAliQnCorrectionsManager();
++   }
++
+    TIter next(&fTrackCuts);
+    AliRsnCutSet *cs;
+    while ((cs = (AliRsnCutSet *) next())) {
+@@ -852,6 +874,13 @@ void AliRsnMiniAnalysisTask::FillMiniEvent(Char_t evType)
+    fMiniEvent->Tracklets() = ComputeTracklets();
+    AliDebugClass(2, Form("Event %d: type = %c -- vz = %f -- mult = %f -- angle = %f", fEvNum, evType, fMiniEvent->Vz(), fMiniEvent->Mult(), fMiniEvent->Angle()));
+ 
++   if (fFlowQnVectorMgr) {
++      TList *qnlist = fFlowQnVectorMgr->GetQnVectorList();
++      if (qnlist) {
++         fMiniEvent->SetQnVector(GetQnVectorFromList(qnlist, fFlowQnVectorSubDet.Data(), fFlowQnVectorExpStep.Data()));
++      }
++  }
++
+    // loop on daughters and assign track-related values
+    Int_t ic, ncuts = fTrackCuts.GetEntries();
+    Int_t ip, npart = fRsnEvent.GetAbsoluteSum();
+@@ -1645,3 +1674,27 @@ AliRsnMiniOutput *AliRsnMiniAnalysisTask::CreateOutput(const char *name, const c
+ 
+    return newDef;
+ }
++
++AliQnCorrectionsQnVector *AliRsnMiniAnalysisTask::GetQnVectorFromList(
++  const TList *list, const char *subdetector, const char *expectedstep) const {
++
++  AliQnCorrectionsQnVector *theQnVector = NULL;
++
++  // TList *pQvecList = dynamic_cast<TList *>(list->FindObject(subdetector));
++  TList *pQvecList = (TList*)list->FindObject(subdetector);
++  if (pQvecList != NULL) {
++    /* the detector is present */
++    if (TString(expectedstep).EqualTo("latest"))
++      theQnVector = (AliQnCorrectionsQnVector *)pQvecList->First();
++    else
++      theQnVector =
++        (AliQnCorrectionsQnVector *)pQvecList->FindObject(expectedstep);
++  }
++  if (theQnVector != NULL) {
++    /* check the Qn vector quality */
++    if (!(theQnVector->IsGoodQuality()) || !(theQnVector->GetN() != 0))
++      /* not good quality, discarded */
++      theQnVector = NULL;
++  }
++  return theQnVector;
++}
+diff --git a/PWGLF/RESONANCES/AliRsnMiniAnalysisTask.h b/PWGLF/RESONANCES/AliRsnMiniAnalysisTask.h
+index 1d4e205..d57bdd9 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniAnalysisTask.h
++++ b/PWGLF/RESONANCES/AliRsnMiniAnalysisTask.h
+@@ -28,6 +28,8 @@ class TList;
+ class AliTriggerAnalysis;
+ class AliRsnMiniEvent;
+ class AliRsnCutSet;
++class AliQnCorrectionsManager;
++class AliQnCorrectionsQnVector;
+ 
+ class AliRsnMiniAnalysisTask : public AliAnalysisTaskSE {
+ 
+@@ -46,6 +48,8 @@ public:
+    void                UseReferenceMultiplicity(const char *type)    {fRefMultiType = type; fRefMultiType.ToUpper();}
+    void                SetUseCentralityPatch(Bool_t isAOD049) {fUseAOD049CentralityPatch = isAOD049;}
+    void                SetUseCentralityPatchPbPb2011(Int_t centralityPatchPbPb2011) {fUseCentralityPatchPbPb2011 = centralityPatchPbPb2011;}
++   void                SetFlowQnVectorSubDet(const char *s) { fFlowQnVectorSubDet = s;}
++   void                SetFlowQnVectorExpStep(const char *s) { fFlowQnVectorExpStep = s;}
+    void                UseMultiplicity(const char *type)  {fUseCentrality = kFALSE; fCentralityType = type; if(!fCentralityType.Contains("AliMultSelection")) fCentralityType.ToUpper();}
+    void                UseContinuousMix()                 {fContinuousMix = kTRUE;}
+    void                UseBinnedMix()                     {fContinuousMix = kFALSE;}
+@@ -95,6 +99,9 @@ private:
+    void     FillTrueMotherAOD(AliRsnMiniEvent *event);
+    void     StoreTrueMother(AliRsnMiniPair *pair, AliRsnMiniEvent *event);
+    Bool_t   EventsMatch(AliRsnMiniEvent *event1, AliRsnMiniEvent *event2);
++   AliQnCorrectionsQnVector * GetQnVectorFromList(const TList *list,
++                                                        const char *subdetector,
++                                                        const char *expectedstep) const;
+ 
+    Bool_t               fUseMC;           //  use or not MC info
+    Int_t                fEvNum;           //! absolute event counter
+@@ -105,6 +112,9 @@ private:
+    TString              fRefMultiType;    //reference multiplicity to use, TRACKLETS (SPD only) or GLOBAL (ITS+TPC)
+    Bool_t               fUseAOD049CentralityPatch; //flag to enable AOD049 centrality patch
+    Int_t                fUseCentralityPatchPbPb2011; //for PbPb 2011 centrality flattening
++   AliQnCorrectionsManager *fFlowQnVectorMgr; // Qn vector manager
++   TString              fFlowQnVectorSubDet;
++   TString              fFlowQnVectorExpStep;
+ 
+    Bool_t               fContinuousMix;   //  mixing --> technique chosen (continuous or binned)
+    Int_t                fNMix;            //  mixing --> required number of mixes
+@@ -144,7 +154,7 @@ private:
+    Float_t              fMotherAcceptanceCutMaxEta;             // cut value to apply when selecting the mothers inside a defined acceptance
+    Bool_t               fKeepMotherInAcceptance;                // flag to keep also mothers in acceptance
+ 
+-   ClassDef(AliRsnMiniAnalysisTask, 12);   // AliRsnMiniAnalysisTask
++   ClassDef(AliRsnMiniAnalysisTask, 13);   // AliRsnMiniAnalysisTask
+ };
+ 
+ 
+diff --git a/PWGLF/RESONANCES/AliRsnMiniEvent.cxx b/PWGLF/RESONANCES/AliRsnMiniEvent.cxx
+index f5b2d29..5895eb4 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniEvent.cxx
++++ b/PWGLF/RESONANCES/AliRsnMiniEvent.cxx
+@@ -14,6 +14,50 @@
+ ClassImp(AliRsnMiniEvent)
+ 
+ //__________________________________________________________________________________________________
++AliRsnMiniEvent::AliRsnMiniEvent(const AliRsnMiniEvent &copy) :
++   TObject(copy),
++   fID(copy.fID),
++   fVz(copy.fVz),
++   fMult(copy.fMult),
++   fRefMult(copy.fRefMult),
++   fTracklets(copy.fTracklets),
++   fAngle(copy.fAngle),
++   fQnVector(copy.fQnVector),
++   fLeading(copy.fLeading),
++   fParticles(copy.fParticles)
++{
++//
++// Copy constructor.
++// Implemented as requested by C++ standards.
++// Can be used in PROOF and by plugins.
++//
++}
++
++//__________________________________________________________________________________________________
++AliRsnMiniEvent &AliRsnMiniEvent::operator=(const AliRsnMiniEvent &copy)
++{
++//
++// Assignment operator.
++// Implemented as requested by C++ standards.
++// Can be used in PROOF and by plugins.
++//
++
++   TObject::operator=(copy);
++   if (this == &copy)
++      return *this;
++   fID = copy.fID;
++   fVz = copy.fVz;
++   fMult = copy.fMult;
++   fRefMult = copy.fRefMult;
++   fTracklets = copy.fTracklets;
++   fAngle = copy.fAngle;
++   fQnVector = copy.fQnVector;
++   fLeading = copy.fLeading;
++   fParticles = copy.fParticles;
++   return (*this);
++}
++
++//__________________________________________________________________________________________________
+ void AliRsnMiniEvent::AddParticle(AliRsnMiniParticle copy)
+ {
+ //
+diff --git a/PWGLF/RESONANCES/AliRsnMiniEvent.h b/PWGLF/RESONANCES/AliRsnMiniEvent.h
+index a3cac74..8c69dcf 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniEvent.h
++++ b/PWGLF/RESONANCES/AliRsnMiniEvent.h
+@@ -12,12 +12,15 @@
+ #include <TClonesArray.h>
+ 
+ class AliRsnMiniParticle;
++class AliQnCorrectionsQnVector;
+ 
+ class AliRsnMiniEvent : public TObject {
+ public:
+ 
+-   AliRsnMiniEvent() : fID(-1), fVz(0.0), fMult(0.0), fRefMult(0.0),  fTracklets(0.0), fAngle(0.0), fLeading(-1), fParticles("AliRsnMiniParticle", 0) {}
++   AliRsnMiniEvent() : fID(-1), fVz(0.0), fMult(0.0), fRefMult(0.0),  fTracklets(0.0), fAngle(0.0), fQnVector(0), fLeading(-1), fParticles("AliRsnMiniParticle", 0) {}
+    ~AliRsnMiniEvent() {fParticles.Delete();}
++   AliRsnMiniEvent(const AliRsnMiniEvent &copy);
++   AliRsnMiniEvent &operator=(const AliRsnMiniEvent &copy);
+ 
+    Int_t              &ID()        {return fID;}
+    Float_t            &Vz()        {return fVz;}
+@@ -33,6 +36,9 @@ public:
+    AliRsnMiniParticle *LeadingParticle();
+    void                AddParticle(AliRsnMiniParticle copy);
+ 
++   void                SetQnVector(AliQnCorrectionsQnVector *v) { fQnVector = v; }
++   AliQnCorrectionsQnVector *GetQnVector() { return fQnVector; }
++
+ private:
+ 
+    Int_t         fID;         // ID number
+@@ -41,11 +47,12 @@ private:
+    Float_t       fRefMult;    // reference multiplicity
+    Float_t       fTracklets;  // tracklets
+    Float_t       fAngle;      // angle of reaction plane to main reference frame
++   AliQnCorrectionsQnVector *fQnVector; //! Qn Vector
+ 
+    Int_t         fLeading;    // index of leading particle
+    TClonesArray  fParticles;  // list of selected particles
+ 
+-   ClassDef(AliRsnMiniEvent, 5)
++   ClassDef(AliRsnMiniEvent, 6)
+ };
+ 
+ #endif
+diff --git a/PWGLF/RESONANCES/AliRsnMiniPair.cxx b/PWGLF/RESONANCES/AliRsnMiniPair.cxx
+index 6d3dd3d..44445e6 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniPair.cxx
++++ b/PWGLF/RESONANCES/AliRsnMiniPair.cxx
+@@ -1,6 +1,9 @@
+ #include "AliRsnMiniParticle.h"
++#include "AliRsnMiniEvent.h"
+ #include "AliRsnMiniPair.h"
+ 
++#include <AliQnCorrectionsQnVector.h>
++
+ ClassImp(AliRsnMiniPair)
+ 
+ //__________________________________________________________________________________________________
+@@ -126,6 +129,32 @@ Double_t AliRsnMiniPair::CosThetaTransversity(Bool_t useMC)
+ }
+ 
+ //__________________________________________________________________________________________________
++Double_t AliRsnMiniPair::CosThetaToEventPlane(AliRsnMiniEvent *event, Bool_t useMC)
++{
++//
++// Return cosine of angle of one daughter in the resonance rest frame to Quantization axis.
++// Quantization axis - perpendicular between event plane and beam direction
++//
++
++  // Get QnVector
++  AliQnCorrectionsQnVector *qnVect = event->GetQnVector();
++  if (!qnVect) return 0;
++
++  TLorentzVector &mother = fSum[ID(useMC)];
++  TLorentzVector daughter = fP1[ID(useMC)];
++  //    TLorentzVector daughter = fP2[ID(useMC)];
++  daughter.Boost(-mother.BoostVector());
++
++  TVector3 evPlaneVect(qnVect->Qx(1), qnVect->Qy(1), 0);
++  TVector3 beamAxis(0, 0, 1);
++  TVector3 quantizationAxis = beamAxis.Cross(evPlaneVect);
++  TVector3 momentumD = daughter.Vect();
++
++  Double_t cosTheta = momentumD.Dot(quantizationAxis)/TMath::Sqrt(momentumD.Mag2()*quantizationAxis.Mag2());
++  return cosTheta;
++}
++
++//__________________________________________________________________________________________________
+ void AliRsnMiniPair::InvertP(Bool_t first)
+ {
+ //
+diff --git a/PWGLF/RESONANCES/AliRsnMiniPair.h b/PWGLF/RESONANCES/AliRsnMiniPair.h
+index b69e307..f255a11 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniPair.h
++++ b/PWGLF/RESONANCES/AliRsnMiniPair.h
+@@ -14,6 +14,7 @@
+ 
+ class AliRsnListOutput;
+ class AliRsnMiniParticle;
++class AliRsnMiniEvent;
+ 
+ class AliRsnMiniPair : public TObject {
+ public:
+@@ -52,6 +53,7 @@ public:
+    Double_t        CosThetaStar(Bool_t mc);
+    Double_t        CosThetaJackson(Bool_t mc);
+    Double_t        CosThetaTransversity(Bool_t mc);
++   Double_t        CosThetaToEventPlane(AliRsnMiniEvent *event, Bool_t mc);
+    Double_t        OpeningAngle(Bool_t mc); 
+    Double_t        DaughterPt(Int_t daughterId, Bool_t mc);
+    Double_t        DaughterDCA(Int_t daughterId); 
+diff --git a/PWGLF/RESONANCES/AliRsnMiniValue.cxx b/PWGLF/RESONANCES/AliRsnMiniValue.cxx
+index 43ecd2e..f1a8c8c 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniValue.cxx
++++ b/PWGLF/RESONANCES/AliRsnMiniValue.cxx
+@@ -117,6 +117,7 @@ const char *AliRsnMiniValue::TypeName(EType type)
+       case kCosThetaStar: return "CosThetaStar";
+       case kCosThetaJackson:    return "CosThetaJackson";
+       case kCosThetaTransversity:    return "CosThetaTransversity";
++      case kCosThetaToEventPlane:    return "CosThetaToEventPlane";
+       case kAngleLeading: return "AngleToLeading";
+       case kFirstDaughterPt: return "FirstDaughterPt";
+       case kSecondDaughterPt: return "SecondDaughterPt";
+@@ -199,6 +200,8 @@ Float_t AliRsnMiniValue::Eval(AliRsnMiniPair *pair, AliRsnMiniEvent *event)
+          return pair->CosThetaJackson(fUseMCInfo);
+       case kCosThetaTransversity:
+          return pair->CosThetaTransversity(fUseMCInfo);
++      case kCosThetaToEventPlane:
++         return pair->CosThetaToEventPlane(event, fUseMCInfo);
+       case kAngleLeading:
+          l = event->LeadingParticle();
+          if (l) {
+diff --git a/PWGLF/RESONANCES/AliRsnMiniValue.h b/PWGLF/RESONANCES/AliRsnMiniValue.h
+index 6f22926..15c51f7 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniValue.h
++++ b/PWGLF/RESONANCES/AliRsnMiniValue.h
+@@ -38,6 +38,7 @@ public:
+       kCosThetaStar,  // polarization angle
+       kCosThetaJackson,  // polarization angle in Jackson frame
+       kCosThetaTransversity, // polarization angle in transversity frame
++      kCosThetaToEventPlane, // polarization angle with respect to Event Plane
+       kAngleLeading,  // angle to leading particle
+       kFirstDaughterPt,  //pt of the first daughter of the pair
+       kSecondDaughterPt, //pt of the second daughter of the pair
+diff --git a/PWGLF/RESONANCES/CMakeLists.txt b/PWGLF/RESONANCES/CMakeLists.txt
+index c082f70..c4d2497 100644
+--- a/PWGLF/RESONANCES/CMakeLists.txt
++++ b/PWGLF/RESONANCES/CMakeLists.txt
+@@ -25,8 +25,9 @@ include_directories(${ROOT_INCLUDE_DIRS}
+                     ${AliPhysics_SOURCE_DIR}/EVENTMIX
+                     ${AliPhysics_SOURCE_DIR}/CORRFW
+                     ${AliPhysics_SOURCE_DIR}/OADB
+-		     ${AliPhysics_SOURCE_DIR}/OADB/COMMON/MULTIPLICITY
+-
++		                ${AliPhysics_SOURCE_DIR}/OADB/COMMON/MULTIPLICITY
++                    ${AliPhysics_SOURCE_DIR}/PWGPP/EVCHAR/FlowVectorCorrections/QnCorrections
++                    ${AliPhysics_SOURCE_DIR}/PWGPP/EVCHAR/FlowVectorCorrections/QnCorrectionsInterface
+   )
+ 
+ # Sources - alphabetical order
+diff --git a/PWGLF/RESONANCES/macros/mini/AddTaskPhiPP13TeV_PID.C b/PWGLF/RESONANCES/macros/mini/AddTaskPhiPP13TeV_PID.C
+index 872a668..beb1150 100644
+--- a/PWGLF/RESONANCES/macros/mini/AddTaskPhiPP13TeV_PID.C
++++ b/PWGLF/RESONANCES/macros/mini/AddTaskPhiPP13TeV_PID.C
+@@ -46,13 +46,16 @@ AliRsnMiniAnalysisTask * AddTaskPhiPP13TeV_PID
+  Bool_t      useMixLS=0,
+  Bool_t      checkReflex=0,
+  AliRsnMiniValue::EType yaxisvar=AliRsnMiniValue::kPt,
+- TString     polarizationOpt="" /* J - Jackson,T - Transversity */
++ TString     polarizationOpt="" /* J - Jackson,T - Transversity */,
++ TString     eventPlaneSubDet="" /* VZEROA*/,
++ TString     eventPlaneExpStep="" /* latest*/
+ )
+ {  
+   //-------------------------------------------
+   // event cuts
+   //-------------------------------------------
+   UInt_t      triggerMask=AliVEvent::kINT7;
++  if (!isPP)  triggerMask=AliVEvent::kAny;
+   if(isMC && (evtCutSetID==eventCutSet::kNoEvtSel || evtCutSetID==eventCutSet::kSpecial3)) triggerMask=AliVEvent::kAny;
+   Bool_t      rejectPileUp=kTRUE;
+   Double_t    vtxZcut=10.0;//cm, default cut on vtx z
+@@ -202,6 +205,12 @@ AliRsnMiniAnalysisTask * AddTaskPhiPP13TeV_PID
+   cutsPair->AddCut(cutY);
+   cutsPair->SetCutScheme(cutY->GetName());
+ 
++  // -- SETS event plane parameters
++  if (!eventPlaneSubDet.IsNull()&&!eventPlaneExpStep.IsNull()) {
++    task->SetFlowQnVectorSubDet(eventPlaneSubDet.Data());
++    task->SetFlowQnVectorExpStep(eventPlaneExpStep.Data());
++  }
++
+   // -- CONFIG ANALYSIS --------------------------------------------------------------------------
+ 
+   gROOT->LoadMacro("$ALICE_PHYSICS/PWGLF/RESONANCES/macros/mini/ConfigPhiPP13TeV_PID.C");
+diff --git a/PWGLF/RESONANCES/macros/mini/ConfigPhiPP13TeV_PID.C b/PWGLF/RESONANCES/macros/mini/ConfigPhiPP13TeV_PID.C
+index 612b1a4..134343d 100644
+--- a/PWGLF/RESONANCES/macros/mini/ConfigPhiPP13TeV_PID.C
++++ b/PWGLF/RESONANCES/macros/mini/ConfigPhiPP13TeV_PID.C
+@@ -76,6 +76,8 @@ Bool_t ConfigPhiPP13TeV_PID
+   /* cos(theta) J (MC)*/ Int_t ctjmID  = task->CreateValue(AliRsnMiniValue::kCosThetaJackson,kTRUE);
+   /* cos(theta) T     */ Int_t cttID  = task->CreateValue(AliRsnMiniValue::kCosThetaTransversity,kFALSE);
+   /* cos(theta) T (MC)*/ Int_t cttmID  = task->CreateValue(AliRsnMiniValue::kCosThetaTransversity,kTRUE);
++  /* cos(theta) E     */ Int_t cteID  = task->CreateValue(AliRsnMiniValue::kCosThetaToEventPlane,kFALSE);
++  /* cos(theta) E (MC)*/ Int_t ctemID  = task->CreateValue(AliRsnMiniValue::kCosThetaToEventPlane,kTRUE);
+ 
+   
+   // -- Create all needed outputs -----------------------------------------------------------------
+@@ -128,8 +130,9 @@ Bool_t ConfigPhiPP13TeV_PID
+     // axis J: rapidity
+     // out->AddAxis(yID, 10, -0.5, 0.5);
+ 
+-    if (polarizationOpt.Contains("J")) out->AddAxis(ctjID,21,-1.,1);
+-    if (polarizationOpt.Contains("T")) out->AddAxis(cttID,21,-1.,1);
++    if (polarizationOpt.Contains("J")) out->AddAxis(ctjID,20,-1.,1);
++    if (polarizationOpt.Contains("T")) out->AddAxis(cttID,20,-1.,1);
++    if (polarizationOpt.Contains("E")) out->AddAxis(cteID,20,-1.,1);
+   }
+ 
+   if(isMC){   
+@@ -144,8 +147,9 @@ Bool_t ConfigPhiPP13TeV_PID
+     outm->AddAxis(ptID,200,0.,20.);
+     if(!isPP || MultBins) outm->AddAxis(centID,100,0.,100.);
+     else outm->AddAxis(centID,161,-0.5,160.5);
+-    if (polarizationOpt.Contains("J")) outm->AddAxis(ctjmID,21,-1.,1.);
+-    if (polarizationOpt.Contains("T")) outm->AddAxis(cttmID,21,-1.,1.);
++    if (polarizationOpt.Contains("J")) outm->AddAxis(ctjmID,20,-1.,1.);
++    if (polarizationOpt.Contains("T")) outm->AddAxis(cttmID,20,-1.,1.);
++    if (polarizationOpt.Contains("E")) outm->AddAxis(ctemID,20,-1.,1.);
+ 
+     AliRsnMiniOutput* outmf=task->CreateOutput(Form("phi_MotherFine%s", suffix),"SPARSE","MOTHER");
+     outmf->SetDaughter(0,AliRsnDaughter::kKaon);
+@@ -157,8 +161,10 @@ Bool_t ConfigPhiPP13TeV_PID
+     outmf->AddAxis(ptID,300,0.,3.);//fine binning for efficiency weighting
+     if(!isPP || MultBins) outmf->AddAxis(centID,100,0.,100.);
+     else outmf->AddAxis(centID,161,-0.5,160.5);
+-    if (polarizationOpt.Contains("J")) outmf->AddAxis(ctjmID,21,-1.,1.);
+-    if (polarizationOpt.Contains("T")) outmf->AddAxis(cttmID,21,-1.,1.);
++    if (polarizationOpt.Contains("J")) outmf->AddAxis(ctjmID,20,-1.,1.);
++    if (polarizationOpt.Contains("T")) outmf->AddAxis(cttmID,20,-1.,1.);
++    if (polarizationOpt.Contains("E")) outmf->AddAxis(ctemID,20,-1.,1.);
++
+ 
+     //get phase space of the decay from mothers
+     AliRsnMiniOutput* outps=task->CreateOutput(Form("phi_phaseSpace%s", suffix),"HIST","TRUE");
+@@ -199,8 +205,9 @@ Bool_t ConfigPhiPP13TeV_PID
+       outreflex->AddAxis(ptID,200,0.,20.);
+       if(!isPP) outreflex->AddAxis(centID,100,0.,100.);
+       else outreflex->AddAxis(centID,400,0.5,400.5);
+-      if (polarizationOpt.Contains("J")) outreflex->AddAxis(ctjID,21,-1.,1.);
+-      if (polarizationOpt.Contains("T")) outreflex->AddAxis(cttID,21,-1.,1.);
++      if (polarizationOpt.Contains("J")) outreflex->AddAxis(ctjID,20,-1.,1.);
++      if (polarizationOpt.Contains("T")) outreflex->AddAxis(cttID,20,-1.,1.);
++      if (polarizationOpt.Contains("E")) outreflex->AddAxis(cteID,20,-1.,1.);
+     }//end reflections
+   }//end MC
+ 

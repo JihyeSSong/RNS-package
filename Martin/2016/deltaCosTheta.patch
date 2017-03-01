@@ -1,0 +1,89 @@
+From 8ef84840d0fe13c6c992d8ee80a756554d37b422 Mon Sep 17 00:00:00 2001
+From: Martin Vala <mvala@saske.sk>
+Date: Wed, 30 Mar 2016 09:35:13 +0200
+Subject: [PATCH] Added DeltaCos() pair cut to remove background.
+
+---
+ PWGLF/RESONANCES/AliRsnCutMiniPair.cxx |  3 +++
+ PWGLF/RESONANCES/AliRsnCutMiniPair.h   |  1 +
+ PWGLF/RESONANCES/AliRsnMiniPair.cxx    | 25 +++++++++++++++++++++++++
+ PWGLF/RESONANCES/AliRsnMiniPair.h      |  1 +
+ 4 files changed, 30 insertions(+)
+
+diff --git a/PWGLF/RESONANCES/AliRsnCutMiniPair.cxx b/PWGLF/RESONANCES/AliRsnCutMiniPair.cxx
+index 8e17115..ba9cb29 100644
+--- a/PWGLF/RESONANCES/AliRsnCutMiniPair.cxx
++++ b/PWGLF/RESONANCES/AliRsnCutMiniPair.cxx
+@@ -57,6 +57,9 @@ Bool_t AliRsnCutMiniPair::IsSelected(TObject *obj)
+       case kDCAproduct:
+          fCutValueD = pair->DCAProduct();
+          return OkRangeD();
++      case kDeltaCosRange:
++         fCutValueD = pair->DeltaCos(kFALSE);
++         return OkRangeD();
+       default:
+          AliWarning("Undefined enum value");
+          return kTRUE;
+diff --git a/PWGLF/RESONANCES/AliRsnCutMiniPair.h b/PWGLF/RESONANCES/AliRsnCutMiniPair.h
+index ddff6f9f..6b6cd4c 100644
+--- a/PWGLF/RESONANCES/AliRsnCutMiniPair.h
++++ b/PWGLF/RESONANCES/AliRsnCutMiniPair.h
+@@ -22,6 +22,7 @@ public:
+       kRapidityFiducialRegionMC,
+       kMomentumComparison,
+       kDCAproduct,
++      kDeltaCosRange,
+       kTypes
+    };
+ 
+diff --git a/PWGLF/RESONANCES/AliRsnMiniPair.cxx b/PWGLF/RESONANCES/AliRsnMiniPair.cxx
+index 5ba31ca..3a9d1aa 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniPair.cxx
++++ b/PWGLF/RESONANCES/AliRsnMiniPair.cxx
+@@ -207,6 +207,31 @@ Double_t AliRsnMiniPair::DipAngle(Bool_t mc) const
+ }
+ 
+ //__________________________________________________________________________________________________
++Double_t AliRsnMiniPair::DeltaCos(Bool_t mc) const
++{
++//
++// Difference of cos(theta) angles
++// - alpha : angle between particles of a pair in the case
++// when they are daughters of the resonance with the mass M
++// - beta : angle between particles of a pair
++// More info in Phys.Rev.C65 (2002) 034909
++
++   const TLorentzVector &p1 = fP1[ID(mc)];
++   const TLorentzVector &p2 = fP2[ID(mc)];
++   const TLorentzVector &mother = fRef[ID(mc)];
++
++   TVector3 p1Vect = p1.Vect();
++   TVector3 p2Vect = p2.Vect();
++
++   Double_t magP1P2 = TMath::Sqrt(p1Vect.Mag2()*p2Vect.Mag2());
++
++   Double_t cosA = (p1.E()*p2.E() - 0.5*(mother.M()*mother.M() - p1.M()*p1.M() - p2.M()*p2.M()))/magP1P2;
++   Double_t cosB = p1Vect.Dot(p2Vect)/magP1P2;
++
++   return cosB-cosA;
++}
++
++//__________________________________________________________________________________________________
+ Double_t AliRsnMiniPair::DaughterPt(Int_t daughterId, Bool_t mc)
+ {
+   //returns pt of the <id> daughter 
+diff --git a/PWGLF/RESONANCES/AliRsnMiniPair.h b/PWGLF/RESONANCES/AliRsnMiniPair.h
+index d827f54..cdee017 100644
+--- a/PWGLF/RESONANCES/AliRsnMiniPair.h
++++ b/PWGLF/RESONANCES/AliRsnMiniPair.h
+@@ -48,6 +48,7 @@ public:
+    Double_t        Y(Bool_t mc)              const  {return fRef[ID(mc)].Rapidity();}
+    Double_t        PtRatio(Bool_t mc)        const;
+    Double_t        DipAngle(Bool_t mc)       const;
++   Double_t        DeltaCos(Bool_t mc)       const;
+    Double_t        CosThetaStar(Bool_t mc);
+    Double_t        CosThetaJackson(Bool_t mc);
+    Double_t        CosThetaTransversity(Bool_t mc);
+-- 
+2.5.5
+
